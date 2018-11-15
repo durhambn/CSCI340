@@ -1,2 +1,3 @@
 # CSCI340
-Final Project
+Final Project: Python Searching Website Spider/Crawler created by Brandi Durham and John Quinn
+For our final project, we wanted to create a python program that allows a user to input a web url and a search input and have our program give back all occurences of the search input on the website. We plan to use python to write the script, and have it initially where the user can input an email address to search for on the site. Our program will seach every page on the website. In the future, we would like to have it where the user can choose which option they would like to search for: email address, phone number, or name. 
