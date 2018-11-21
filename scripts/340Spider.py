@@ -1,7 +1,10 @@
+#!/usr/bin/env python2.7
 import os
-#from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup
+import requests
 import urllib2
 import re
+import thread
 
 
 
@@ -37,28 +40,35 @@ def getInput():
 #website entered by user
 #return source code
 def callSite(url):
-    response = urllib2.urlopen(url)
-    pageSource = response.read()
-    print(pageSource)
+    #response = urllib2.urlopen(url)
+    #pageSource = response.read()
+
+    html = requests.get(url).content
+    pageSource = BeautifulSoup(html, "html.parser")
+    #print(pageSource)
     return pageSource
 
 #pass in source code and find all the links on the website
 #return list of all the links in source code
 def getLinks(sourcecode):
     links = []
-
+    links = sourcecode.findAll('a')
+    finalLinks = set()
+    for link in links:
+        finalLinks.add(link.attrs['href'])
+    return finalLinks
 
 
 
 #method used to seach website for getInput
 #return address (link) and the address/number found
-def searchSite():
+#def searchSite():
 
 
 
 #pass in info found and make output file
 #with link and stuff found
-def makeTable():
+#def makeTable():
 
 
 
@@ -69,5 +79,11 @@ print("Type of search: " + str(num))
 print("Searching for: " + search)
 # get the source code of the main site
 pageSource = callSite(site)
+print(pageSource)
 #get all the links from the main site
 links = getLinks(pageSource)
+print(links)
+
+#implement threads for each link on main page?
+#thread will call getLinks to find links on new pageSource
+#will call search site to seach for user address
