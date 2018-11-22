@@ -43,20 +43,22 @@ def callSite(url):
     #response = urllib2.urlopen(url)
     #pageSource = response.read()
 
-    html = requests.get(url).content
+    html = requests.get(url).text
     pageSource = BeautifulSoup(html, "html.parser")
+    pageSource.prettify()
     #print(pageSource)
     return pageSource
 
 #pass in source code and find all the links on the website
 #return list of all the links in source code
 def getLinks(sourcecode):
-    links = []
-    links = sourcecode.findAll('a')
-    finalLinks = set()
-    for link in links:
-        finalLinks.add(link.attrs['href'])
-    return finalLinks
+    list = []
+    #links = sourcecode.find_all('a')
+    #finalLinks = set()
+    for link in sourcecode.find_all('a', href=True):
+        list.append(link['href'])
+        #finalLinks.add(link.attrs['href'])
+    return list
 
 
 
@@ -79,7 +81,7 @@ print("Type of search: " + str(num))
 print("Searching for: " + search)
 # get the source code of the main site
 pageSource = callSite(site)
-print(pageSource)
+#print(pageSource)
 #get all the links from the main site
 links = getLinks(pageSource)
 print(links)
