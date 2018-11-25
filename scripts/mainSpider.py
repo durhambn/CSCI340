@@ -5,13 +5,25 @@ import requests
 import urllib2
 import re
 import threading
+import signal
 
-#method used to get input from user
-#return user choice: email or phone number
-#the address or number to seach
-def getInput():
-    site = raw_input("Enter the base URL which will be targetted: ")
+#CONFIG VARIABLES
+MAX_CONNECTIONS = 5
+
+# using dummy values to make testing and whatnot far easier, also just having it go to max depth for now
+# I've expanded the functionality of this method to just have it get everything we need
+# the implication is that things like max_connections could be user input, or maybe not
+# the initialize function just handles it all
+def initialize():
+    site = ("https://compsci.cofc.edu")
+    print("Enter the target base URL... using - https://compsci.cofc.edu ")
+    print("Enter the depth of links to be followed... using 1 ")
+    depth = ("1")
     type(site)
+    type(depth)
+    return site, depth, MAX_CONNECTIONS
+
+"""    
     print("1: Email Address")
     print("2: Phone Number")
     num = input("Which would you like to find? ")
@@ -30,34 +42,7 @@ def getInput():
     else:
         #print ("Not a valid number ... exiting")
         sys.exit("Not a valid number ... exiting")
-
-
-
-
-#method used to get the source code from the
-#website entered by user
-#return source code
-def callSite(url):
-    #response = urllib2.urlopen(url)
-    #pageSource = response.read()
-
-    html = requests.get(url).text
-    pageSource = BeautifulSoup(html, "html.parser")
-    pageSource.prettify()
-    #print(pageSource)
-    return pageSource
-
-#pass in source code and find all the links on the website
-#return list of all the links in source code
-def getLinks(sourcecode):
-    list = []
-    #links = sourcecode.find_all('a')
-    #finalLinks = set()
-    for link in sourcecode.find_all('a', href=True):
-        list.append(link['href'])
-        #finalLinks.add(link.attrs['href'])
-    return list
-
+"""
 
 #This will call all the methods that each thread needs to do
 #and return a tuplet of (link, address or amount)
@@ -66,69 +51,67 @@ def threadTask(url):
     #links = getLinks(callSite(url))
     #print("links found at url: " + links)
 
+# root recursive method, gets the ball rolling
+def performSearch(url, maxdepth):
+    print("starting search on site: " + url)
+    return parseURL(url,0,maxdepth)
 
+# method used to parse a given url link, recursively calling itself on any
+# subordinate urls found
+# returns address (link) and the address/number found
+# truly 100% recursive, calls back to it's parent, and to it's parent's parent
+# each parent's output is built upon by its child's output, incrementally
+# until a full links object is returned by the root method
 
-#method used to seach website for getInput
-#return address (link) and the address/number found
-def searchSite(num, search, url):
-    print("searching this site: " + url)
-    sourceCode = callSite(url)
-    #print(sourceCode)
-    #soup = BeautifulSoup(sourceCode, 'html.parser')
-    text = sourceCode.get_text()
-    #text = text.split()
-    #1 is email address and 2 is phone number
-    if(num == 1):
-        if search in text:
-            print(url + " : " + search)
-        else:
-            print(url + " : " + search + " not found")
-    elif(num ==2):
-        if search in text:
-            print(url + " : " + search)
-        else:
-            print(url + " : " + search + " not found")
+def parseURL(url, currentdepth, maxdepth):
+    if(currentdepth >= maxdepth):
+        print("url: " + url + ", max depth reached, returning...")
+        return
+    else:
+        # this is where it will wait first for permission from the semaphore
+        # to open a new connection
+        print("url: " + url + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section.")
+        
+        connectionLimitingSemaphore.acquire()
+        
+        print("url: " + url + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site.")
+        page = urllib2.urlopen(url).read()
+        
+        soup = BeautifulSoup(page,'lxml')
+        soup.prettify()        
 
+        for link in soup.find_all('a'):
+            print(link.get('href'))
+            
+        connectionLimitingSemaphore.release()
 
+        return link['href']
+        
 
-#pass in info found and make output file
-#with link and stuff found
-#def makeTable():
-
-
+def writeLinks(linksList, outfile):
+    print("attempting to write links to outfile: " + outfile)
+    print("...not yet implemented.")
 
 #gets user input and stores in vaiables
-site, num, search = getInput()
-print("Website to search: " + site)
-print("Type of search: " + str(num))
-print("Searching for: " + search)
-# get the source code of the main site
-pageSource = callSite(site)
-#print(pageSource)
-#get all the links from the main site
-links = getLinks(pageSource)
-#print(links)
-'''
-for i in range(len(links)):
-    str(i) = threading.Thread(target = threadTask, args = (links[i]), name = str(i))
-for i in range(len(links)):
-    str(i).start()
-for i in range(len(links)):
-    str(i).join()
-'''
-searchSite(num, search, site)
 
+site, depth, maxconnections = initialize()
+print("Website to search: " + site)
+print("Depth of search: " + depth)
+print("Max simulataneous connections: " + str(maxconnections))
+
+connectionLimitingSemaphore = threading.BoundedSemaphore(maxconnections)
+
+# recurse through all links, gathering the link object, using the provided signal handler
+linksList = performSearch(site, depth)
+
+# write the link object to the output file
+writeLinks(linksList, outfile.txt)
+
+"""
 threads = []
 for i in range(len(links)):
     threads.append(threading.Thread(target = threadTask, args = (links[i])))
     threads[-1].start()
 for t in threads:
     t.join()
-'''
-executor = concurrent.futures.ProcessPoolExecutor(10)
-futures = [executor.submit(threadTask, item) for item in links]
-concurrent.futures.wait(futures)
-'''
-#implement threads for each link on main page?
-#thread will call getLinks to find links on new pageSource
-#will call search site to seach for user address
+"""
