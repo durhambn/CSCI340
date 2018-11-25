@@ -4,7 +4,8 @@ from bs4 import BeautifulSoup
 import requests
 import urllib2
 import re
-import thread
+import threading
+
 
 
 
@@ -61,10 +62,35 @@ def getLinks(sourcecode):
     return list
 
 
+#This will call all the methods that each thread needs to do
+#and return a tuplet of (link, address or amount)
+def threadTask(url):
+    searchSite(url)
+    #links = getLinks(callSite(url))
+    #print("links found at url: " + links)
+
+
 
 #method used to seach website for getInput
 #return address (link) and the address/number found
-#def searchSite():
+def searchSite(num, search, url):
+    print("searching this site: " + url)
+    sourceCode = callSite(url)
+    #print(sourceCode)
+    #soup = BeautifulSoup(sourceCode, 'html.parser')
+    text = sourceCode.get_text()
+    #text = text.split()
+    #1 is email address and 2 is phone number
+    if(num == 1):
+        if search in text:
+            print(url + " : " + search)
+        else:
+            print(url + " : " + search + " not found")
+    elif(num ==2):
+        if search in text:
+            print(url + " : " + search)
+        else:
+            print(url + " : " + search + " not found")
 
 
 
@@ -84,8 +110,28 @@ pageSource = callSite(site)
 #print(pageSource)
 #get all the links from the main site
 links = getLinks(pageSource)
-print(links)
+#print(links)
+'''
+for i in range(len(links)):
+    str(i) = threading.Thread(target = threadTask, args = (links[i]), name = str(i))
+for i in range(len(links)):
+    str(i).start()
+for i in range(len(links)):
+    str(i).join()
+'''
+searchSite(num, search, site)
 
+threads = []
+for i in range(len(links)):
+    threads.append(threading.Thread(target = threadTask, args = (links[i])))
+    threads[-1].start()
+for t in threads:
+    t.join()
+'''
+executor = concurrent.futures.ProcessPoolExecutor(10)
+futures = [executor.submit(threadTask, item) for item in links]
+concurrent.futures.wait(futures)
+'''
 #implement threads for each link on main page?
 #thread will call getLinks to find links on new pageSource
 #will call search site to seach for user address
