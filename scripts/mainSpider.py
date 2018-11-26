@@ -23,6 +23,17 @@ def initialize():
     type(depth)
     return site, depth, MAX_CONNECTIONS
 
+def validateURL(url):
+    regex = re.compile(
+        r'^(?:http|ftp)s?://' # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' #domain...
+        r'localhost|' #localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
+        r'(?::\d+)?' # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    
+    return re.match(regex,url) is None
+
 """    
     print("1: Email Address")
     print("2: Phone Number")
@@ -66,7 +77,10 @@ def performSearch(url, maxdepth):
 def parseURL(url, currentdepth, maxdepth):
     if(currentdepth >= maxdepth):
         print("url: " + url + ", max depth reached, returning...")
-        return
+        return []
+    elif(validateURL(url)):
+        print("invalid url: " + url + " supplied, returning...")
+        return []
     else:
         # this is where it will wait first for permission from the semaphore
         # to open a new connection
@@ -78,14 +92,19 @@ def parseURL(url, currentdepth, maxdepth):
         page = urllib2.urlopen(url).read()
         
         soup = BeautifulSoup(page,'lxml')
-        soup.prettify()        
-
-        for link in soup.find_all('a'):
-            print(link.get('href'))
-            
+        soup.prettify()
+        
         connectionLimitingSemaphore.release()
 
-        return link['href']
+        linksObject = soup.find_all('a')
+        output = []
+
+        for link in linksObject:
+            output = output + parseURL(link.get('href'),currentdepth+1,maxdepth)
+            print(link.get('href'))            
+
+        return linksObject + output
+
         
 
 def writeLinks(linksList, outfile):
