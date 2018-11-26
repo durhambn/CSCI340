@@ -6,33 +6,57 @@ import urllib2
 import re
 import threading
 import signal
+from collections import defaultdict
 
 #CONFIG VARIABLES
-MAX_CONNECTIONS = 5
+MAX_CONNECTIONS = 500
 
-# using dummy values to make testing and whatnot far easier, also just having it go to max depth for now
-# I've expanded the functionality of this method to just have it get everything we need
-# the implication is that things like max_connections could be user input, or maybe not
-# the initialize function just handles it all
+#GLOBAL VARIABLES
+ACTIVE_THREADS = []
+LINKS_LIST = defaultdict(list)
+
+# This is a signal handler class, registered to the signals as defined below in it's constructor
+# It's currently not used. Apparently signal handlers must always be accessed from the main thread
+class SignalHandler:
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.shutdown_threads)
+        signal.signal(signal.SIGTERM, self.shutdown_threads)
+
+    def shutdown_threads(self, signum, frame):
+        print("Shutdown signal received, not yet implemented...")
+            
+# 
+# I've changed this to be using dummy values to make testing and whatnot far easier,
+# It's just a bunch of hardcoded stuff, and it's just trying to get every link to the
+# full depth every time. Our full functionanlity of having it only return links where
+# the field is found can be cleanly built on top of this
+#
+
 def initialize():
     site = ("https://compsci.cofc.edu")
     print("Enter the target base URL... using - https://compsci.cofc.edu ")
     print("Enter the depth of links to be followed... using 1 ")
-    depth = ("1")
+    depth = (1)
     type(site)
     type(depth)
     return site, depth, MAX_CONNECTIONS
 
+# big complicated regex function taken from django that just makes sure it's a valid url
+#
+# returns: true or false
 def validateURL(url):
+    if url is None:
+        return False
+    
     regex = re.compile(
-        r'^(?:http|ftp)s?://' # http:// or https://
+        r'^(?:http|ftp)s?://' # http:// or https://n
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' #domain...
         r'localhost|' #localhost...
         r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
         r'(?::\d+)?' # optional port
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
     
-    return re.match(regex,url) is None
+    return re.match(regex,url) is not None
 
 """    
     print("1: Email Address")
@@ -64,8 +88,11 @@ def threadTask(url):
 
 # root recursive method, gets the ball rolling
 def performSearch(url, maxdepth):
-    print("starting search on site: " + url)
-    return parseURL(url,0,maxdepth)
+    print("starting search on site: " + url)   
+    ACTIVE_THREADS.append(threading.Thread(target = parseURL, args = (url,0,maxdepth,0)))
+    ACTIVE_THREADS[-1].daemon=True
+    ACTIVE_THREADS[-1].start()
+    return 
 
 # method used to parse a given url link, recursively calling itself on any
 # subordinate urls found
@@ -74,21 +101,18 @@ def performSearch(url, maxdepth):
 # each parent's output is built upon by its child's output, incrementally
 # until a full links object is returned by the root method
 
-def parseURL(url, currentdepth, maxdepth):
+def parseURL(url, currentdepth, maxdepth, threadID):
     if(currentdepth >= maxdepth):
-        print("url: " + url + ", max depth reached, returning...")
-        return []
-    elif(validateURL(url)):
-        print("invalid url: " + url + " supplied, returning...")
-        return []
+        print("url: " + str(url) + ", max depth reached, returning...")
+        return
     else:
         # this is where it will wait first for permission from the semaphore
         # to open a new connection
-        print("url: " + url + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section.")
+        # print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section. ")
         
         connectionLimitingSemaphore.acquire()
         
-        print("url: " + url + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site.")
+        print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site. ")
         page = urllib2.urlopen(url).read()
         
         soup = BeautifulSoup(page,'lxml')
@@ -97,15 +121,23 @@ def parseURL(url, currentdepth, maxdepth):
         connectionLimitingSemaphore.release()
 
         linksObject = soup.find_all('a')
-        output = []
-
-        for link in linksObject:
-            output = output + parseURL(link.get('href'),currentdepth+1,maxdepth)
-            print(link.get('href'))            
-
-        return linksObject + output
-
         
+        threads = []
+        newIDscnt = threadID
+        
+        for link in linksObject:            
+            print(link.get('href'))
+            if(validateURL(url)):
+                LINKS_LIST[threadID].append(link.get('href'))
+                newIDscnt = newIDscnt + 1
+                threads.append(threading.Thread(target = parseURL, args = (link.get('href'),currentdepth+1,maxdepth,threadID)))
+                threads[-1].daemon=True
+                threads[-1].start()
+            else:
+                print("invalid url " + link.get('href') + " detected, ignoring...")
+
+        for t in threads:
+            t.join()
 
 def writeLinks(linksList, outfile):
     print("attempting to write links to outfile: " + outfile)
@@ -115,22 +147,22 @@ def writeLinks(linksList, outfile):
 
 site, depth, maxconnections = initialize()
 print("Website to search: " + site)
-print("Depth of search: " + depth)
+print("Depth of search: " + str(depth))
 print("Max simulataneous connections: " + str(maxconnections))
 
 connectionLimitingSemaphore = threading.BoundedSemaphore(maxconnections)
 
 # recurse through all links, gathering the link object, using the provided signal handler
-linksList = performSearch(site, depth)
+performSearch(site, depth)
+
+ACTIVE_THREADS[0].join()
+
+print("Final returned list.")
+
+# returned full list
+for threadID in LINKS_LIST:
+    for entry in LINKS_LIST[threadID]:
+        print(entry)
 
 # write the link object to the output file
-writeLinks(linksList, outfile.txt)
-
-"""
-threads = []
-for i in range(len(links)):
-    threads.append(threading.Thread(target = threadTask, args = (links[i])))
-    threads[-1].start()
-for t in threads:
-    t.join()
-"""
+writeLinks(LINKS_LIST, "outfile.txt")
