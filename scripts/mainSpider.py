@@ -9,7 +9,7 @@ import signal
 from collections import defaultdict
 
 #CONFIG VARIABLES
-MAX_CONNECTIONS = 500
+MAX_CONNECTIONS = 300
 
 #GLOBAL VARIABLES
 ACTIVE_THREADS = []
@@ -17,6 +17,7 @@ LINKS_LIST = defaultdict(list)
 
 # This is a signal handler class, registered to the signals as defined below in it's constructor
 # It's currently not used. Apparently signal handlers must always be accessed from the main thread
+# so that is what this is about
 class SignalHandler:
     def __init__(self):
         signal.signal(signal.SIGINT, self.shutdown_threads)
@@ -27,7 +28,7 @@ class SignalHandler:
             
 # 
 # I've changed this to be using dummy values to make testing and whatnot far easier,
-# It's just a bunch of hardcoded stuff, and it's just trying to get every link to the
+# It's just a bunch of hardcoded stuff, and it's just trying to get follow every link to the
 # full depth every time. Our full functionanlity of having it only return links where
 # the field is found can be cleanly built on top of this
 #
@@ -41,9 +42,14 @@ def initialize():
     type(depth)
     return site, depth, MAX_CONNECTIONS
 
+#
 # big complicated regex function taken from django that just makes sure it's a valid url
+# I emailed Munsell about whether or not it's okay for us to use it, we can find another way to
+# validate the URL's if needed. This one just werks(TM)
 #
 # returns: true or false
+#
+
 def validateURL(url):
     if url is None:
         return False
@@ -79,62 +85,67 @@ def validateURL(url):
         sys.exit("Not a valid number ... exiting")
 """
 
-#This will call all the methods that each thread needs to do
-#and return a tuplet of (link, address or amount)
-def threadTask(url):
-    searchSite(url)
-    #links = getLinks(callSite(url))
-    #print("links found at url: " + links)
-
 # root recursive method, gets the ball rolling
 def performSearch(url, maxdepth):
-    print("starting search on site: " + url)   
-    ACTIVE_THREADS.append(threading.Thread(target = parseURL, args = (url,0,maxdepth,0)))
-    ACTIVE_THREADS[-1].daemon=True
-    ACTIVE_THREADS[-1].start()
+    print("starting search on site: " + url)
+    parseURL(url,0,maxdepth,0);
     return 
 
-# method used to parse a given url link, recursively calling itself on any
-# subordinate urls found
-# returns address (link) and the address/number found
-# truly 100% recursive, calls back to it's parent, and to it's parent's parent
-# each parent's output is built upon by its child's output, incrementally
-# until a full links object is returned by the root method
+#
+# The big "does stuffs" method, which parses a given url link, recursively calling itself on any
+# subordinate urls found. The multithreading magic happens in the way this method recursively functions:
+# each URL it finds and deems to be valid will spawn a thread to follow that url, calling another instance
+# of this same function. At the end of the method, the thread will wait ala thread.join() on each of its
+# child threads.
+#
+# In this manner, the spider threads tend to explode outwards, with each parent waiting on it's respective
+# children. This is opposed to the main thread managing all children
+#
+
 
 def parseURL(url, currentdepth, maxdepth, threadID):
+
+    # this is that key recursive "stopping" statement, which stops this thing from running forever
     if(currentdepth >= maxdepth):
         print("url: " + str(url) + ", max depth reached, returning...")
         return
     else:
         # this is where it will wait first for permission from the semaphore
         # to open a new connection
-        # print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section. ")
+
+        # (just for debug) print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section. ")
         
         connectionLimitingSemaphore.acquire()
-        
-        print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site. ")
-        page = urllib2.urlopen(url).read()
+
+        #print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site. ")
+
+        ## this is the only part of this program that actually causes the network call. Arguably the critical section could be limited to this one line
+        page = urllib2.urlopen(url).read() 
         
         soup = BeautifulSoup(page,'lxml')
         soup.prettify()
         
         connectionLimitingSemaphore.release()
 
+        # grabs all links
         linksObject = soup.find_all('a')
         
         threads = []
         newIDscnt = threadID
-        
+
+        # as mentioned above, this is where the concurrency kicks in. the parent creates a thread for every valid link it finds
+        # because this would spawn over a hundred threads easily on one major page alone, this is why that network call limiter is so important
+        # try playing with the semaphore and you'll notice your computer does NOT like all those network calls. websites might ban you too :)
         for link in linksObject:            
-            print(link.get('href'))
+            #print(link.get('href'))
             if(validateURL(url)):
                 LINKS_LIST[threadID].append(link.get('href'))
                 newIDscnt = newIDscnt + 1
-                threads.append(threading.Thread(target = parseURL, args = (link.get('href'),currentdepth+1,maxdepth,threadID)))
+                threads.append(threading.Thread(target = parseURL, args = (link.get('href'),currentdepth+1,maxdepth,newIDscnt))) 
                 threads[-1].daemon=True
                 threads[-1].start()
-            else:
-                print("invalid url " + link.get('href') + " detected, ignoring...")
+            #else:
+                #print("invalid url " + link.get('href') + " detected, ignoring...")
 
         for t in threads:
             t.join()
@@ -143,6 +154,12 @@ def writeLinks(linksList, outfile):
     print("attempting to write links to outfile: " + outfile)
     print("...not yet implemented.")
 
+#############################################################################3
+#
+#  WHERE THE MAGIC HAPPENS
+#
+############
+    
 #gets user input and stores in vaiables
 
 site, depth, maxconnections = initialize()
@@ -153,8 +170,11 @@ print("Max simulataneous connections: " + str(maxconnections))
 connectionLimitingSemaphore = threading.BoundedSemaphore(maxconnections)
 
 # recurse through all links, gathering the link object, using the provided signal handler
-performSearch(site, depth)
+ACTIVE_THREADS.append(threading.Thread(target = performSearch, args = (site,depth)))
+ACTIVE_THREADS[-1].daemon=True
+ACTIVE_THREADS[-1].start()
 
+performSearch(site, depth)
 ACTIVE_THREADS[0].join()
 
 print("Final returned list.")
