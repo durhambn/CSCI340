@@ -3,6 +3,7 @@ import os
 from bs4 import BeautifulSoup
 import requests
 import urllib2
+#import urllib.request
 import re
 import threading
 import signal
@@ -25,8 +26,8 @@ class SignalHandler:
 
     def shutdown_threads(self, signum, frame):
         print("Shutdown signal received, not yet implemented...")
-            
-# 
+
+#
 # I've changed this to be using dummy values to make testing and whatnot far easier,
 # It's just a bunch of hardcoded stuff, and it's just trying to get follow every link to the
 # full depth every time. Our full functionanlity of having it only return links where
@@ -53,7 +54,7 @@ def initialize():
 def validateURL(url):
     if url is None:
         return False
-    
+
     regex = re.compile(
         r'^(?:http|ftp)s?://' # http:// or https://n
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' #domain...
@@ -61,10 +62,10 @@ def validateURL(url):
         r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
         r'(?::\d+)?' # optional port
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-    
+
     return re.match(regex,url) is not None
 
-"""    
+"""
     print("1: Email Address")
     print("2: Phone Number")
     num = input("Which would you like to find? ")
@@ -89,7 +90,7 @@ def validateURL(url):
 def performSearch(url, maxdepth):
     print("starting search on site: " + url)
     parseURL(url,0,maxdepth,0);
-    return 
+    return
 
 #
 # The big "does stuffs" method, which parses a given url link, recursively calling itself on any
@@ -114,34 +115,36 @@ def parseURL(url, currentdepth, maxdepth, threadID):
         # to open a new connection
 
         # (just for debug) print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section. ")
-        
+
         connectionLimitingSemaphore.acquire()
 
         #print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site. ")
 
         ## this is the only part of this program that actually causes the network call. Arguably the critical section could be limited to this one line
-        page = urllib2.urlopen(url).read() 
-        
-        soup = BeautifulSoup(page,'lxml')
+        page = urllib2.urlopen(url).read()
+
+        #changed to html.parser because xlml didn't work for me
+        soup = BeautifulSoup(page,'html.parser')
         soup.prettify()
-        
+
         connectionLimitingSemaphore.release()
 
         # grabs all links
-        linksObject = soup.find_all('a')
-        
+        #linksObject = soup.find_all('a')
+        linksObject = soup.find_all('a', href= True)
+
         threads = []
         newIDscnt = threadID
 
         # as mentioned above, this is where the concurrency kicks in. the parent creates a thread for every valid link it finds
         # because this would spawn over a hundred threads easily on one major page alone, this is why that network call limiter is so important
         # try playing with the semaphore and you'll notice your computer does NOT like all those network calls. websites might ban you too :)
-        for link in linksObject:            
+        for link in linksObject:
             #print(link.get('href'))
             if(validateURL(url)):
                 LINKS_LIST[threadID].append(link.get('href'))
                 newIDscnt = newIDscnt + 1
-                threads.append(threading.Thread(target = parseURL, args = (link.get('href'),currentdepth+1,maxdepth,newIDscnt))) 
+                threads.append(threading.Thread(target = parseURL, args = (link.get('href'),currentdepth+1,maxdepth,newIDscnt)))
                 threads[-1].daemon=True
                 threads[-1].start()
             #else:
@@ -151,15 +154,21 @@ def parseURL(url, currentdepth, maxdepth, threadID):
             t.join()
 
 def writeLinks(linksList, outfile):
-    print("attempting to write links to outfile: " + outfile)
-    print("...not yet implemented.")
+    file =open(outfile, "w")
+    for threadID in LINKS_LIST:
+        #print(threadID)
+        for entry in LINKS_LIST[threadID]:
+            file.write(str(entry) + " \n ")
+    #file.write(linksList)
+    print("Writing links to outfile: " + outfile)
+    #print("...not yet implemented.")
 
 #############################################################################3
 #
 #  WHERE THE MAGIC HAPPENS
 #
 ############
-    
+
 #gets user input and stores in vaiables
 
 site, depth, maxconnections = initialize()
