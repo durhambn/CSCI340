@@ -6,29 +6,100 @@ import urllib2
 #import urllib.request
 import re
 import threading
+from threading import Lock
 import signal
+import Queue
+import heapq #by default this is a minheap, we will need to flip it
 from collections import defaultdict
-
 
 #CONFIG VARIABLES
 MAX_CONNECTIONS = 300
+MAX_THREADS = 3
+MAX_RETRIES = 10
 
 #GLOBAL VARIABLES
 ACTIVE_THREADS = []
+WORK_QUEUE = []
+CURRENT_QUEUE_SIZE = 0
+QUEUE_MUTEX = Lock()
+
 LINKS_LIST = defaultdict(list)
 RESULTS = []
 
-# This is a signal handler class, registered to the signals as defined below in it's constructor
-# It's currently not used. Apparently signal handlers must always be accessed from the main thread
-# so that is what this is about
-class SignalHandler:
-    def __init__(self):
-        signal.signal(signal.SIGINT, self.shutdown_threads)
-        signal.signal(signal.SIGTERM, self.shutdown_threads)
+#CONSTANTS 
+QUIT = -1
+GO = 0
+UNSET = -1
+SUCCESS = 0
+FAILED = -1
 
-    def shutdown_threads(self, signum, frame):
-        print("Shutdown signal received, not yet implemented...")
+## STOPLIGHT GOES ERWEREEEEREREREHH
+msignal = QUIT  ##brakes on by default
+##
 
+# In order to sort our urls by something, we're creating this object
+# the heapq function will run the __lt__ function to do its sorting therefor it's compatible
+class PendingURL:
+    url = "unset"
+    currentdepth = UNSET
+    maxdepth = UNSET
+    threadID = UNSET
+
+    def __init__(self, url, currentdepth, maxdepth, threadid):
+        self.url = url
+        self.currentdepth = currentdepth
+        self.maxdepth = maxdepth
+        self.threadid = threadid
+    
+    def __lt__(self, other):
+        return self.currentdepth > other ## flipped to turn the minheap into a maxheap
+
+def signal_handler(incomingsignal, frame):
+    print('Signal Recieved, shutting down' + str(signal) + str(frame))
+    global mSignal
+    mSignal = QUIT
+    sys.exit(0)
+
+############################
+#
+# THREAD POOL CLASSES
+#
+### I was trying to put these in an object, but I can't figure out the scoping
+### so that they can still access the parseURL method. Guess they stay here?
+
+## Fire up the threads
+def startAllThreads():
+    global mSignal
+    mSignal = GO
+    count = 0
+    while count is not MAX_THREADS:
+        ACTIVE_THREADS.append(threading.Thread(target = workingThreadLooper, args = ()))
+        ACTIVE_THREADS[-1].start()
+        count += 1
+                        
+def stopAllThreads():
+    global mSignal
+    mSignal = QUIT
+    for thread in ACTIVE_THREADS:
+        thread.join()
+    
+def workingThreadLooper():
+    global mSignal
+
+    ##run until told not to
+    while(mSignal is not QUIT):
+        
+        if (CURRENT_QUEUE_SIZE is not 0):
+            myURL = heapq.heappop(WORK_QUEUE)         
+            outcome = FAILED
+            attempt = 0
+            ## repeat attempts until something clicks
+            while (outcome is not SUCCESS and attempt is not MAX_RETRIES):
+                outcome = parseURL(myURL)
+            if (outcome is not SUCCESS):
+                print("html data from url " + myURL.url + " could not be retried after max retries")
+       
+    
 #
 # I've changed this to be using dummy values to make testing and whatnot far easier,
 # It's just a bunch of hardcoded stuff, and it's just trying to get follow every link to the
@@ -37,10 +108,13 @@ class SignalHandler:
 #
 
 def initialize():
+    #signal.signal(signal.SIGINT, signal_handler)
+    #signal.signal(signal.SIGTERM, signal_handler)
+    
     site = ("http://compsci.cofc.edu/about/faculty-staff-listing/")
     print("Enter the target base URL... using - https://compsci.cofc.edu ")
     print("Enter the depth of links to be followed... using 1 ")
-    depth = 1
+    depth = 2
     type(site)
     type(depth)
     return site, depth, MAX_CONNECTIONS
@@ -90,33 +164,19 @@ def validateURL(url):
 
     return re.match(regex,url) is not None
 
-"""
-    print("1: Email Address")
-    print("2: Phone Number")
-    num = input("Which would you like to find? ")
-    type(num)
-    #print num
-    if(num == 1):
-        search = raw_input("Enter the email address you'd like to search for: ")
-        type(search)
-        #print search
-        return site, num, search
-    elif(num ==2):
-        search = raw_input("Enter the phone number you'd like to seach for: ")
-        type(search)
-        #print search
-        return site, num, search
-    else:
-        #print ("Not a valid number ... exiting")
-        sys.exit("Not a valid number ... exiting")
-"""
 
 # root recursive method, gets the ball rolling
 def performSearch(url, maxdepth):
     print("starting search on site: " + url)
-    parseURL(url,0,maxdepth,0);
-    return
 
+    baseurl = PendingURL(site,0,maxdepth,0)
+    QUEUE_MUTEX.acquire();
+    global CURRENT_QUEUE_SIZE
+    CURRENT_QUEUE_SIZE += 1
+    heapq.heappush(WORK_QUEUE,baseurl)
+    QUEUE_MUTEX.release();
+    
+    return
 
 def emailSearchRE(html):
     #print(html)
@@ -139,70 +199,68 @@ def emailSearchRE(html):
 #
 
 
-def parseURL(url, currentdepth, maxdepth, threadID):
+def parseURL(toParse):
+    
+    # this is where it will wait first for permission from the semaphore
+    # to open a new connection
+    # (just for debug) print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section. ")
 
-    # this is that key recursive "stopping" statement, which stops this thing from running forever
-    if(currentdepth >= maxdepth):
-        #print("url: " + str(url) + ", max depth reached, returning...")
-        return
-    else:
-        # this is where it will wait first for permission from the semaphore
-        # to open a new connection
+    connectionLimitingSemaphore.acquire()
+    
+    #print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site. ")
 
-        # (just for debug) print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section. ")
-
-        connectionLimitingSemaphore.acquire()
-
-        #print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site. ")
-
-        ## this is the only part of this program that actually causes the network call. Arguably the critical section could be limited to this one line
-        page = urllib2.urlopen(url).read()
-
-        #changed to html.parser because xlml didn't work for me
-        #html.parser is standard
-        soup = BeautifulSoup(page,'html.parser')
-        soup.prettify()
-
+    try:
+        page = urllib2.urlopen(toParse.url).read()
+    except Exception:
+        print("Something broke when getting the url " + toParse.url + " - failed.")
         connectionLimitingSemaphore.release()
+        return FAILED
 
-        # grabs all links
-        #linksObject = soup.find_all('a')
-        linksObject = soup.find_all('a', href= True)
+    soup = BeautifulSoup(page,'html.parser')
+    soup.prettify()
 
+    connectionLimitingSemaphore.release()
 
-        #Semaphore so only one thread can add to the list at a time
-        searhingSemaphore.acquire()
-        urlResults = []
-        body = soup.get_text()
-        addToResults = emailSearchRE(body)
+    # grabs all links
+    linksObject = soup.find_all('a', href= True)
 
-        for i in range(len(addToResults)):
-            urlResults.append(threadID)
-            urlResults.append(url)
-            urlResults.append(addToResults[i])
-            RESULTS.append(urlResults)
+    #Semaphore so only one thread can add to the list at a time
+    searhingSemaphore.acquire()
+    urlResults = []
+    body = soup.get_text()
+    addToResults = emailSearchRE(body) ## parses HTML for emails regex
 
-        searhingSemaphore.release()
+    for i in range(len(addToResults)):        
+        urlResults.append(toParse.threadID)
+        urlResults.append(toParse.url)
+        urlResults.append(addToResults[i])
+        RESULTS.append(urlResults)
 
-        threads = []
-        newIDscnt = threadID
+    searhingSemaphore.release()
 
-        # as mentioned above, this is where the concurrency kicks in. the parent creates a thread for every valid link it finds
-        # because this would spawn over a hundred threads easily on one major page alone, this is why that network call limiter is so important
-        # try playing with the semaphore and you'll notice your computer does NOT like all those network calls. websites might ban you too :)
-        for link in linksObject:
-            #print(link.get('href'))
-            if(validateURL(url)):
-                LINKS_LIST[threadID].append(link.get('href'))
-                newIDscnt = newIDscnt + 1
-                threads.append(threading.Thread(target = parseURL, args = (link.get('href'),currentdepth+1,maxdepth,newIDscnt)))
-                threads[-1].daemon=True
-                threads[-1].start()
-            else:
-                print("invalid url " + link + " detected, ignoring...")
+    newIDscnt = toParse.threadID
 
-        for t in threads:
-            t.join()
+    # QUEUES UP NEW URLS TO BE SEARCHED
+    #
+    # In this new version, the act of "doing" the work is separated from where it gets done
+    # This loop finds every link that is to be explored, and adds it to the queue as needed
+    #
+    for link in linksObject:
+        #print(link.get('href'))
+        if(validateURL(toParse.url)):
+            LINKS_LIST[toParse.threadID].append(link.get('href'))
+            newIDscnt = newIDscnt + 1
+            if (toParse.currentdepth+1 is not toParse.maxdepth):
+                newURL = PendingURL(link.get('href'),toParse.currentdepth+1,toParse.maxdepth,newIDscnt)
+                QUEUE_MUTEX.acquire();
+                global CURRENT_QUEUE_SIZE
+                CURRENT_QUEUE_SIZE += 1
+                heapq.heappush(WORK_QUEUE,newURL)
+                QUEUE_MUTEX.release();
+        else:
+            print("invalid url " + link + " detected, ignoring...")
+
+    return SUCCESS
 
 
 def writeLinks(linksList, outfile):
@@ -217,6 +275,7 @@ def writeLinks(linksList, outfile):
     #print("...not yet implemented.")
     file.close()
 
+            
 def writeResults(results, outfile):
     file2 = open(outfile, "w")
     i = 0
@@ -244,13 +303,9 @@ print
 connectionLimitingSemaphore = threading.BoundedSemaphore(maxconnections)
 searhingSemaphore = threading.BoundedSemaphore(1)
 
-# recurse through all links, gathering the link object, using the provided signal handler
-ACTIVE_THREADS.append(threading.Thread(target = performSearch, args = (site,depth)))
-ACTIVE_THREADS[-1].daemon=True
-ACTIVE_THREADS[-1].start()
-
+startAllThreads()
 performSearch(site, depth)
-ACTIVE_THREADS[0].join()
+stopAllThreads()
 
 print("Final returned list.")
 
