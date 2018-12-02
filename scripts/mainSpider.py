@@ -9,12 +9,14 @@ import threading
 import signal
 from collections import defaultdict
 
+
 #CONFIG VARIABLES
 MAX_CONNECTIONS = 300
 
 #GLOBAL VARIABLES
 ACTIVE_THREADS = []
 LINKS_LIST = defaultdict(list)
+RESULTS = []
 
 # This is a signal handler class, registered to the signals as defined below in it's constructor
 # It's currently not used. Apparently signal handlers must always be accessed from the main thread
@@ -35,13 +37,36 @@ class SignalHandler:
 #
 
 def initialize():
-    site = ("https://compsci.cofc.edu")
+    site = ("http://compsci.cofc.edu/about/faculty-staff-listing/")
     print("Enter the target base URL... using - https://compsci.cofc.edu ")
     print("Enter the depth of links to be followed... using 1 ")
-    depth = (1)
+    depth = 1
     type(site)
     type(depth)
     return site, depth, MAX_CONNECTIONS
+    print("1: Email Address")
+    print("2: Phone Number")
+    print("3: All emails")
+    num = input("Which would you like to find? ")
+    type(num)
+    #print num
+    if(num == 1):
+        search = raw_input("Enter the email address you'd like to search for: ")
+        type(search)
+        #print search
+        return site, depth, MAX_CONNECTIONS, num, search
+    elif(num ==2):
+        search = raw_input("Enter the phone number you'd like to seach for: ")
+        type(search)
+        #print search
+        return site, depth, MAX_CONNECTIONS, num, search
+    elif(num ==3):
+        print("Searching all emails")
+        search = "email"
+        return site, depth, MAX_CONNECTIONS, num, search
+    else:
+        #print ("Not a valid number ... exiting")
+        sys.exit("Not a valid number ... exiting")
 
 #
 # big complicated regex function taken from django that just makes sure it's a valid url
@@ -92,6 +117,16 @@ def performSearch(url, maxdepth):
     parseURL(url,0,maxdepth,0);
     return
 
+
+def emailSearchRE(html):
+    #print(html)
+    emails = re.findall(r'[\w\.-]+@[\w\.-]+',html)
+    '''
+    for i in emails:
+        print (i)
+        '''
+    return emails
+
 #
 # The big "does stuffs" method, which parses a given url link, recursively calling itself on any
 # subordinate urls found. The multithreading magic happens in the way this method recursively functions:
@@ -108,7 +143,7 @@ def parseURL(url, currentdepth, maxdepth, threadID):
 
     # this is that key recursive "stopping" statement, which stops this thing from running forever
     if(currentdepth >= maxdepth):
-        print("url: " + str(url) + ", max depth reached, returning...")
+        #print("url: " + str(url) + ", max depth reached, returning...")
         return
     else:
         # this is where it will wait first for permission from the semaphore
@@ -124,6 +159,7 @@ def parseURL(url, currentdepth, maxdepth, threadID):
         page = urllib2.urlopen(url).read()
 
         #changed to html.parser because xlml didn't work for me
+        #html.parser is standard
         soup = BeautifulSoup(page,'html.parser')
         soup.prettify()
 
@@ -132,6 +168,21 @@ def parseURL(url, currentdepth, maxdepth, threadID):
         # grabs all links
         #linksObject = soup.find_all('a')
         linksObject = soup.find_all('a', href= True)
+
+
+        #Semaphore so only one thread can add to the list at a time
+        searhingSemaphore.acquire()
+        urlResults = []
+        body = soup.get_text()
+        addToResults = emailSearchRE(body)
+
+        for i in range(len(addToResults)):
+            urlResults.append(threadID)
+            urlResults.append(url)
+            urlResults.append(addToResults[i])
+            RESULTS.append(urlResults)
+
+        searhingSemaphore.release()
 
         threads = []
         newIDscnt = threadID
@@ -147,21 +198,34 @@ def parseURL(url, currentdepth, maxdepth, threadID):
                 threads.append(threading.Thread(target = parseURL, args = (link.get('href'),currentdepth+1,maxdepth,newIDscnt)))
                 threads[-1].daemon=True
                 threads[-1].start()
-            #else:
-                #print("invalid url " + link.get('href') + " detected, ignoring...")
+            else:
+                print("invalid url " + link + " detected, ignoring...")
 
         for t in threads:
             t.join()
 
+
 def writeLinks(linksList, outfile):
     file =open(outfile, "w")
     for threadID in LINKS_LIST:
-        #print(threadID)
+        print(threadID)
+        file.write("At Depth: " + str(threadID) + "\n")
         for entry in LINKS_LIST[threadID]:
             file.write(str(entry) + " \n ")
     #file.write(linksList)
     print("Writing links to outfile: " + outfile)
     #print("...not yet implemented.")
+    file.close()
+
+def writeResults(results, outfile):
+    file2 = open(outfile, "w")
+    i = 0
+    print("len of results: " + str(len(results)))
+    while(i< (len(results)-3)):
+        string = (str(results[i]) +" " +  str(results[i+1]) + " " +  str(results[i+2]) + "\n")
+        file2.write(string)
+        i=i+3
+    file2.close()
 
 #############################################################################3
 #
@@ -170,13 +234,15 @@ def writeLinks(linksList, outfile):
 ############
 
 #gets user input and stores in vaiables
-
-site, depth, maxconnections = initialize()
+#add num and search
+site, depth, maxconnections= initialize()
 print("Website to search: " + site)
 print("Depth of search: " + str(depth))
 print("Max simulataneous connections: " + str(maxconnections))
+print
 
 connectionLimitingSemaphore = threading.BoundedSemaphore(maxconnections)
+searhingSemaphore = threading.BoundedSemaphore(1)
 
 # recurse through all links, gathering the link object, using the provided signal handler
 ACTIVE_THREADS.append(threading.Thread(target = performSearch, args = (site,depth)))
@@ -189,9 +255,14 @@ ACTIVE_THREADS[0].join()
 print("Final returned list.")
 
 # returned full list
-for threadID in LINKS_LIST:
-    for entry in LINKS_LIST[threadID]:
-        print(entry)
-
+#for threadID in LINKS_LIST:
+    #for entry in LINKS_LIST[threadID]:
+        #print(entry)
+if(len(RESULTS) ==0):
+    print("There were no emails found at depth " + str(depth))
+else:
+    writeResults(RESULTS, "results.txt")
+    #print(RESULTS)
 # write the link object to the output file
+
 writeLinks(LINKS_LIST, "outfile.txt")
