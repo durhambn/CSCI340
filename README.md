@@ -17,7 +17,6 @@ developed with python 2.7 and on ubuntu 16.04 LTS
 
 pip install requests
             beautifulsoup4
-	    threading
 
 ### TECHNICAL OVERVIEW ###
 
