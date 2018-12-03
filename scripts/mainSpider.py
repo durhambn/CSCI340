@@ -79,6 +79,12 @@ FAILED = -1
 msignal = QUIT  ##brakes on by default
 ##
 
+
+##
+# tutorial on classes in python
+# https://www.w3schools.com/python/python_classes.asp
+##
+
 # In order to sort our urls by something, we're creating this object
 # the heapq function will run the __lt__ function to do its sorting therefor it's compatible
 class PendingURL:
@@ -156,6 +162,11 @@ def initialize():
     #signal.signal(signal.SIGINT, signal_handler)
     #signal.signal(signal.SIGTERM, signal_handler)
 
+    ##
+    # site used to learn how to get user input
+    # https://www.pythonforbeginners.com/basics/getting-user-input-from-the-keyboard
+    ##
+    
     #site = ("http://compsci.cofc.edu/about/faculty-staff-listing/")
     site = raw_input("Enter the target base URL... using - https://compsci.cofc.edu ")
     #print("Enter the target base URL... using - https://compsci.cofc.edu ")
@@ -239,11 +250,13 @@ def emailSearchRE(html):
     emails = []
     print NUM
     if (NUM == 3):
+        ##
+        # different tutorial on regex
+        # with an example for matching emails
+        # using regex from site
+        # https://developers.google.com/edu/python/regular-expressions
+        ##
         emails = re.findall(r'[\w\.-]+@[\w\.-]+',html)
-        '''
-        for i in emails:
-            print (i)
-            '''
         return emails
     elif (NUM == 2 or NUM==1):
         if SEARCH in html:
@@ -287,8 +300,6 @@ def parseURL(toParse):
     # grabs all links
     linksObject = soup.find_all('a', href= True)
 
-    #Semaphore so only one thread can add to the list at a time
-    #searhingSemaphore.acquire()
     urlResults = []
     body = soup.get_text()
     addToResults = emailSearchRE(body) ## parses HTML for emails regex
@@ -296,14 +307,6 @@ def parseURL(toParse):
         for i in range(len(addToResults)):
             RESULTS[toParse.threadID].append(toParse.url)
             RESULTS[toParse.threadID].append(addToResults[i])
-        '''
-        urlResults.append(toParse.threadID)
-        urlResults.append(toParse.url)
-        urlResults.append(addToResults[i])
-        RESULTS.append(urlResults)
-        '''
-
-    #searhingSemaphore.release()
 
     newIDscnt = toParse.threadID
 
