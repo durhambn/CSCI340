@@ -1,4 +1,4 @@
-### CSCI340 FINAL PROJECT ###
+### CSCI340 FINAL PROJECT: Site Searching Spider ###
 
 Python Searching Website Spider/Crawler created by Brandi Durham and John Quinn
 
