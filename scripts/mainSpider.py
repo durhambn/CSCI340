@@ -53,7 +53,7 @@ class PendingURL:
         self.url = url
         self.currentdepth = currentdepth
         self.maxdepth = maxdepth
-        self.threadID = threadid
+        self.threadID = threading.currentThread()
 
     def __lt__(self, other):
         return self.currentdepth > other ## flipped to turn the minheap into a maxheap
@@ -278,7 +278,7 @@ def parseURL(toParse):
         #print(link.get('href'))
         if(validateURL(toParse.url)):
             LINKS_LIST[toParse.threadID].append(link.get('href'))
-            newIDscnt = newIDscnt + 1
+            #newIDscnt = newIDscnt + 1
             if (toParse.currentdepth+1 is not toParse.maxdepth):
                 newURL = PendingURL(link.get('href'),toParse.currentdepth+1,toParse.maxdepth,newIDscnt)
                 QUEUE_MUTEX.acquire();
