@@ -53,9 +53,9 @@ from collections import defaultdict
 #CONFIG VARIABLES
 MAX_CONNECTIONS = 300
 MAX_THREADS = 12
-MAX_RETRIES = 10
+MAX_RETRIES = 1
 DEFAULT_URL = "https://compsci.cofc.edu"
-DEFAULT_DEPTH = "1"
+DEFAULT_DEPTH = 2
 
 #GLOBAL VARIABLES
 ACTIVE_THREADS = []
@@ -107,7 +107,7 @@ class PendingURL:
 EMPTY_URL = PendingURL("unset",UNSET,UNSET) ##used elsewhere
 
 def signal_handler(incomingsignal, frame):
-    print('Signal Recieved, shutting down' + str(signal) + str(frame))
+    print('Signal caught, shutting down' + str(signal) + str(frame))
     global mSignal
     mSignal = QUIT
     sys.exit(0)
@@ -138,10 +138,11 @@ def stopAllThreads():
 # look for keys in the work dict, if values are empty, give them URLS 
 def runThreadPool():
     try:
-        while(mSignal is not QUIT): ##check queue, assign - either run till empty or maybe count to 10
+        while(mSignal is not QUIT): ##check queue, assign 
             global CURRENT_QUEUE_SIZE
+            print CURRENT_QUEUE_SIZE
             QUEUE_MUTEX.acquire()
-            stilworking = False 
+            stilworking = False
 
             for threadID in ACTIVE_THREADS_WORK: # walk through all running threads
                 if threadID is not None: # active thread
@@ -149,7 +150,7 @@ def runThreadPool():
                         stillworking = True
                     elif CURRENT_QUEUE_SIZE is not 0: ## give it work
                         ACTIVE_THREADS_WORK[threadID] = heapq.heappop(WORK_QUEUE)
-                        CURRENT_QUEUE_SIZE -= 1
+                        CURRENT_QUEUE_SIZE = CURRENT_QUEUE_SIZE - 1
                         stillworking = True
                     
             if stillworking:
@@ -160,7 +161,7 @@ def runThreadPool():
                 return
               
     except:
-        print("exception caught, shutting down...")
+        print("command received, shutting down...")
         stopAllThreads()
 
         
@@ -182,7 +183,9 @@ def workingThreadLooper():
                 outcome = parseURL(myURL)
                 attempt +=1
                 parseURL(myURL)
+           #QUEUE_MUTEX.acquire()
             ACTIVE_THREADS_WORK[threading.current_thread()]=EMPTY_URL
+           # QUEUE_MUTEX.release()
 
 
 #
@@ -204,7 +207,7 @@ def initialize():
     ##
     
     site = raw_input("Enter the target base URL [ " + DEFAULT_URL + " ]") or DEFAULT_URL
-    depth = raw_input("Enter the depth of links to be followed [ " + str(DEFAULT_DEPTH) + " ]") or DEFAULT_DEPTH
+    depth = DEFAULT_DEPTH #raw_input("Enter the depth of links to be followed [ " + str(DEFAULT_DEPTH) + " ]") or DEFAULT_DEPTH
 
     type(site)
     type(depth)
@@ -273,7 +276,7 @@ def performSearch(url, maxdepth):
     baseurl = PendingURL(url,0,maxdepth)
     QUEUE_MUTEX.acquire();
     global CURRENT_QUEUE_SIZE
-    CURRENT_QUEUE_SIZE += 1
+    CURRENT_QUEUE_SIZE = CURRENT_QUEUE_SIZE + 1
     heapq.heappush(WORK_QUEUE,baseurl)
     QUEUE_MUTEX.release();
 
@@ -346,14 +349,15 @@ def parseURL(toParse):
         if(validateURL(toParse.url)):
             LINKS_LIST[threading.currentThread()].append(link.get('href'))
             #newIDscnt = newIDscnt + 1
-            if (toParse.currentdepth+1 is not toParse.maxdepth):
+            if (toParse.currentdepth+1 != toParse.maxdepth):
                 newURL = PendingURL(link.get('href'),toParse.currentdepth+1,toParse.maxdepth)
+
                 QUEUE_MUTEX.acquire();
                 global CURRENT_QUEUE_SIZE
                 CURRENT_QUEUE_SIZE += 1
                 heapq.heappush(WORK_QUEUE,newURL)
                 print("added " + link.get('href') + " to work queue for parsing")
-                QUEUE_MUTEX.release();
+                QUEUE_MUTEX.release();     
         else:
             print("invalid url " + link + " detected, ignoring...")
 
@@ -372,17 +376,8 @@ def writeLinks(linksList, outfile):
     #print("...not yet implemented.")
     file.close()
 
-'''
-def writeResults(results, outfile):
-    file2 = open(outfile, "w")
-    i = 0
-    print("len of results: " + str(len(results)))
-    while(i< (len(results)-3)):
-        string = (str(results[i]) +" " +  str(results[i+1]) + " " +  str(results[i+2]) + "\n")
-        file2.write(string)
-        i=i+3
-    file2.close()
-    '''
+def queueSizeUpdate():
+    print("Size of current queue: " + str(CURRENT_QUEUE_SIZE))
 
 #############################################################################3
 #
@@ -402,16 +397,14 @@ connectionLimitingSemaphore = threading.BoundedSemaphore(maxconnections)
 searhingSemaphore = threading.BoundedSemaphore(1)
 
 performSearch(site, depth)
+
 startAllThreads()
 runThreadPool()
 stopAllThreads()
 
+
 print("Final returned list.")
 
-# returned full list
-#for threadID in LINKS_LIST:
-    #for entry in LINKS_LIST[threadID]:
-        #print(entry)
 if(len(RESULTS) ==0):
     if(NUM==1):
         print("The email address " + SEARCH + " was not found")
