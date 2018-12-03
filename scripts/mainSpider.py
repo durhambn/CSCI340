@@ -23,10 +23,14 @@ WORK_QUEUE = []
 CURRENT_QUEUE_SIZE = 0
 QUEUE_MUTEX = Lock()
 
-LINKS_LIST = defaultdict(list)
-RESULTS = []
+NUM = 0
+SEARCH = "None"
 
-#CONSTANTS 
+LINKS_LIST = defaultdict(list)
+#RESULTS = []
+RESULTS = defaultdict(list)
+
+#CONSTANTS
 QUIT = -1
 GO = 0
 UNSET = -1
@@ -49,8 +53,8 @@ class PendingURL:
         self.url = url
         self.currentdepth = currentdepth
         self.maxdepth = maxdepth
-        self.threadid = threadid
-    
+        self.threadID = threadid
+
     def __lt__(self, other):
         return self.currentdepth > other ## flipped to turn the minheap into a maxheap
 
@@ -76,30 +80,31 @@ def startAllThreads():
         ACTIVE_THREADS.append(threading.Thread(target = workingThreadLooper, args = ()))
         ACTIVE_THREADS[-1].start()
         count += 1
-                        
+
 def stopAllThreads():
     global mSignal
     mSignal = QUIT
     for thread in ACTIVE_THREADS:
         thread.join()
-    
+
 def workingThreadLooper():
     global mSignal
 
     ##run until told not to
     while(mSignal is not QUIT):
-        
+
         if (CURRENT_QUEUE_SIZE is not 0):
-            myURL = heapq.heappop(WORK_QUEUE)         
+            myURL = heapq.heappop(WORK_QUEUE)
             outcome = FAILED
             attempt = 0
             ## repeat attempts until something clicks
             while (outcome is not SUCCESS and attempt is not MAX_RETRIES):
                 outcome = parseURL(myURL)
+                attempt +=1
             if (outcome is not SUCCESS):
                 print("html data from url " + myURL.url + " could not be retried after max retries")
-       
-    
+
+
 #
 # I've changed this to be using dummy values to make testing and whatnot far easier,
 # It's just a bunch of hardcoded stuff, and it's just trying to get follow every link to the
@@ -108,16 +113,22 @@ def workingThreadLooper():
 #
 
 def initialize():
+    global NUM
+    global SEARCH
     #signal.signal(signal.SIGINT, signal_handler)
     #signal.signal(signal.SIGTERM, signal_handler)
-    
-    site = ("http://compsci.cofc.edu/about/faculty-staff-listing/")
-    print("Enter the target base URL... using - https://compsci.cofc.edu ")
-    print("Enter the depth of links to be followed... using 1 ")
-    depth = 2
+
+    #site = ("http://compsci.cofc.edu/about/faculty-staff-listing/")
+    site = raw_input("Enter the target base URL... using - https://compsci.cofc.edu ")
+    #print("Enter the target base URL... using - https://compsci.cofc.edu ")
+    depth = raw_input("Enter the depth of links to be followed... using 1 ")
+    #print("Enter the depth of links to be followed... using 1 ")
+    #depth = 2
     type(site)
     type(depth)
-    return site, depth, MAX_CONNECTIONS
+
+    #return site, depth, MAX_CONNECTIONS
+
     print("1: Email Address")
     print("2: Phone Number")
     print("3: All emails")
@@ -128,15 +139,22 @@ def initialize():
         search = raw_input("Enter the email address you'd like to search for: ")
         type(search)
         #print search
+        NUM = num
+        SEARCH = search
         return site, depth, MAX_CONNECTIONS, num, search
     elif(num ==2):
+        #has to be in the same format, ex. 843.805.5507
         search = raw_input("Enter the phone number you'd like to seach for: ")
         type(search)
         #print search
+        NUM = num
+        SEARCH = search
         return site, depth, MAX_CONNECTIONS, num, search
     elif(num ==3):
         print("Searching all emails")
         search = "email"
+        NUM = num
+        SEARCH = search
         return site, depth, MAX_CONNECTIONS, num, search
     else:
         #print ("Not a valid number ... exiting")
@@ -169,23 +187,30 @@ def validateURL(url):
 def performSearch(url, maxdepth):
     print("starting search on site: " + url)
 
-    baseurl = PendingURL(site,0,maxdepth,0)
+    baseurl = PendingURL(url,0,maxdepth,0)
     QUEUE_MUTEX.acquire();
     global CURRENT_QUEUE_SIZE
     CURRENT_QUEUE_SIZE += 1
     heapq.heappush(WORK_QUEUE,baseurl)
     QUEUE_MUTEX.release();
-    
+
     return
 
 def emailSearchRE(html):
     #print(html)
-    emails = re.findall(r'[\w\.-]+@[\w\.-]+',html)
-    '''
-    for i in emails:
-        print (i)
+    emails = []
+    print NUM
+    if (NUM == 3):
+        emails = re.findall(r'[\w\.-]+@[\w\.-]+',html)
         '''
-    return emails
+        for i in emails:
+            print (i)
+            '''
+        return emails
+    elif (NUM == 2 or NUM==1):
+        if SEARCH in html:
+            emails.append(SEARCH)
+            return emails
 
 #
 # The big "does stuffs" method, which parses a given url link, recursively calling itself on any
@@ -200,13 +225,13 @@ def emailSearchRE(html):
 
 
 def parseURL(toParse):
-    
+
     # this is where it will wait first for permission from the semaphore
     # to open a new connection
     # (just for debug) print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section. ")
 
     connectionLimitingSemaphore.acquire()
-    
+
     #print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site. ")
 
     try:
@@ -225,18 +250,22 @@ def parseURL(toParse):
     linksObject = soup.find_all('a', href= True)
 
     #Semaphore so only one thread can add to the list at a time
-    searhingSemaphore.acquire()
+    #searhingSemaphore.acquire()
     urlResults = []
     body = soup.get_text()
     addToResults = emailSearchRE(body) ## parses HTML for emails regex
-
-    for i in range(len(addToResults)):        
+    if addToResults is not None:
+        for i in range(len(addToResults)):
+            RESULTS[toParse.threadID].append(toParse.url)
+            RESULTS[toParse.threadID].append(addToResults[i])
+        '''
         urlResults.append(toParse.threadID)
         urlResults.append(toParse.url)
         urlResults.append(addToResults[i])
         RESULTS.append(urlResults)
+        '''
 
-    searhingSemaphore.release()
+    #searhingSemaphore.release()
 
     newIDscnt = toParse.threadID
 
@@ -265,17 +294,17 @@ def parseURL(toParse):
 
 def writeLinks(linksList, outfile):
     file =open(outfile, "w")
-    for threadID in LINKS_LIST:
+    for threadID in linksList:
         print(threadID)
-        file.write("At Depth: " + str(threadID) + "\n")
-        for entry in LINKS_LIST[threadID]:
-            file.write(str(entry) + " \n ")
+        #file.write("At Depth: " + str(threadID) + "\n")
+        for entry in linksList[threadID]:
+            file.write(str(entry) + "\n")
     #file.write(linksList)
-    print("Writing links to outfile: " + outfile)
+    print("Writing to outfile: " + outfile)
     #print("...not yet implemented.")
     file.close()
 
-            
+'''
 def writeResults(results, outfile):
     file2 = open(outfile, "w")
     i = 0
@@ -285,6 +314,7 @@ def writeResults(results, outfile):
         file2.write(string)
         i=i+3
     file2.close()
+    '''
 
 #############################################################################3
 #
@@ -294,17 +324,18 @@ def writeResults(results, outfile):
 
 #gets user input and stores in vaiables
 #add num and search
-site, depth, maxconnections= initialize()
+site, depth, maxconnections, num, search= initialize()
 print("Website to search: " + site)
 print("Depth of search: " + str(depth))
 print("Max simulataneous connections: " + str(maxconnections))
-print
+print ("")
 
 connectionLimitingSemaphore = threading.BoundedSemaphore(maxconnections)
 searhingSemaphore = threading.BoundedSemaphore(1)
 
-startAllThreads()
 performSearch(site, depth)
+startAllThreads()
+#performSearch(site, depth)
 stopAllThreads()
 
 print("Final returned list.")
@@ -314,9 +345,15 @@ print("Final returned list.")
     #for entry in LINKS_LIST[threadID]:
         #print(entry)
 if(len(RESULTS) ==0):
-    print("There were no emails found at depth " + str(depth))
+    if(NUM==1):
+        print("The email address " + SEARCH + " was not found")
+    elif(NUM==2):
+        print("The phone number " + SEARCH + " was not found")
+    elif(NUM==3):
+        print("There were no emails found at depth")
 else:
-    writeResults(RESULTS, "results.txt")
+    print("Outputting results to file result.txt")
+    writeLinks(RESULTS, "results.txt")
     #print(RESULTS)
 # write the link object to the output file
 
