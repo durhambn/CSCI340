@@ -52,11 +52,14 @@ from collections import defaultdict
 
 #CONFIG VARIABLES
 MAX_CONNECTIONS = 300
-MAX_THREADS = 3
+MAX_THREADS = 12
 MAX_RETRIES = 10
+DEFAULT_URL = "https://compsci.cofc.edu"
+DEFAULT_DEPTH = "1"
 
 #GLOBAL VARIABLES
 ACTIVE_THREADS = []
+ACTIVE_THREADS_WORK = {} #Dict of threadID to work to be done
 WORK_QUEUE = []
 CURRENT_QUEUE_SIZE = 0
 QUEUE_MUTEX = Lock()
@@ -75,6 +78,7 @@ UNSET = -1
 SUCCESS = 0
 FAILED = -1
 
+
 ## STOPLIGHT GOES ERWEREEEEREREREHH
 msignal = QUIT  ##brakes on by default
 ##
@@ -91,16 +95,16 @@ class PendingURL:
     url = "unset"
     currentdepth = UNSET
     maxdepth = UNSET
-    threadID = UNSET
 
-    def __init__(self, url, currentdepth, maxdepth, threadid):
+    def __init__(self, url, currentdepth, maxdepth):
         self.url = url
         self.currentdepth = currentdepth
         self.maxdepth = maxdepth
-        self.threadID = threading.currentThread()
 
     def __lt__(self, other):
         return self.currentdepth > other ## flipped to turn the minheap into a maxheap
+
+EMPTY_URL = PendingURL("unset",UNSET,UNSET) ##used elsewhere
 
 def signal_handler(incomingsignal, frame):
     print('Signal Recieved, shutting down' + str(signal) + str(frame))
@@ -131,22 +135,54 @@ def stopAllThreads():
     for thread in ACTIVE_THREADS:
         thread.join()
 
+# look for keys in the work dict, if values are empty, give them URLS 
+def runThreadPool():
+    try:
+        while(mSignal is not QUIT): ##check queue, assign - either run till empty or maybe count to 10
+            global CURRENT_QUEUE_SIZE
+            QUEUE_MUTEX.acquire()
+            stilworking = False 
+
+            for threadID in ACTIVE_THREADS_WORK: # walk through all running threads
+                if threadID is not None: # active thread
+                    if ACTIVE_THREADS_WORK.get(threadID) is not EMPTY_URL: ## this one still is working
+                        stillworking = True
+                    elif CURRENT_QUEUE_SIZE is not 0: ## give it work
+                        ACTIVE_THREADS_WORK[threadID] = heapq.heappop(WORK_QUEUE)
+                        CURRENT_QUEUE_SIZE -= 1
+                        stillworking = True
+                    
+            if stillworking:
+                QUEUE_MUTEX.release()
+            else: 
+                print("Work queue is now empty, exiting...")
+                QUEUE_MUTEX.release()
+                return
+              
+    except:
+        print("exception caught, shutting down...")
+        stopAllThreads()
+
+        
 def workingThreadLooper():
     global mSignal
-
-    ##run until told not to
+    #register myself with work queue
+    ACTIVE_THREADS_WORK[threading.current_thread()]=EMPTY_URL
+    
+    ##run while it has work, until told not to
     while(mSignal is not QUIT):
-
-        if (CURRENT_QUEUE_SIZE is not 0):
-            myURL = heapq.heappop(WORK_QUEUE)
+        #QUEUE_MUTEX.acquire()
+        myURL = ACTIVE_THREADS_WORK.get(threading.current_thread())
+        #QUEUE_MUTEX.release()
+        if myURL is not EMPTY_URL:
             outcome = FAILED
             attempt = 0
             ## repeat attempts until something clicks
             while (outcome is not SUCCESS and attempt is not MAX_RETRIES):
                 outcome = parseURL(myURL)
                 attempt +=1
-            if (outcome is not SUCCESS):
-                print("html data from url " + myURL.url + " could not be retried after max retries")
+                parseURL(myURL)
+            ACTIVE_THREADS_WORK[threading.current_thread()]=EMPTY_URL
 
 
 #
@@ -167,12 +203,9 @@ def initialize():
     # https://www.pythonforbeginners.com/basics/getting-user-input-from-the-keyboard
     ##
     
-    #site = ("http://compsci.cofc.edu/about/faculty-staff-listing/")
-    site = raw_input("Enter the target base URL... using - https://compsci.cofc.edu ")
-    #print("Enter the target base URL... using - https://compsci.cofc.edu ")
-    depth = raw_input("Enter the depth of links to be followed... using 1 ")
-    #print("Enter the depth of links to be followed... using 1 ")
-    #depth = 2
+    site = raw_input("Enter the target base URL [ " + DEFAULT_URL + " ]") or DEFAULT_URL
+    depth = raw_input("Enter the depth of links to be followed [ " + str(DEFAULT_DEPTH) + " ]") or DEFAULT_DEPTH
+
     type(site)
     type(depth)
 
@@ -181,7 +214,7 @@ def initialize():
     print("1: Email Address")
     print("2: Phone Number")
     print("3: All emails")
-    num = input("Which would you like to find? ")
+    num = input("Which would you like to find? ") 
     type(num)
     #print num
     if(num == 1):
@@ -221,6 +254,7 @@ def validateURL(url):
     if url is None:
         return False
 
+    ## source https://stackoverflow.com/questions/7160737/python-how-to-validate-a-url-in-python-malformed-or-not ##
     regex = re.compile(
         r'^(?:http|ftp)s?://' # http:// or https://n
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' #domain...
@@ -236,7 +270,7 @@ def validateURL(url):
 def performSearch(url, maxdepth):
     print("starting search on site: " + url)
 
-    baseurl = PendingURL(url,0,maxdepth,0)
+    baseurl = PendingURL(url,0,maxdepth)
     QUEUE_MUTEX.acquire();
     global CURRENT_QUEUE_SIZE
     CURRENT_QUEUE_SIZE += 1
@@ -248,7 +282,6 @@ def performSearch(url, maxdepth):
 def emailSearchRE(html):
     #print(html)
     emails = []
-    print NUM
     if (NUM == 3):
         ##
         # different tutorial on regex
@@ -277,18 +310,13 @@ def emailSearchRE(html):
 
 def parseURL(toParse):
 
-    # this is where it will wait first for permission from the semaphore
-    # to open a new connection
-    # (just for debug) print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Requesting access to search critical section. ")
-
+    # this is where it will wait first for permission from the semaphore for a connection    
     connectionLimitingSemaphore.acquire()
 
-    #print("threadID: " + str(threadID) + " url: " + str(url) + ", currentdepth: " + str(currentdepth) + ", Access granted from semaphore, parsing site. ")
-
+    # has a high frequency of failure, this is what we retry
     try:
         page = urllib2.urlopen(toParse.url).read()
     except Exception:
-        print("Something broke when getting the url " + toParse.url + " - failed.")
         connectionLimitingSemaphore.release()
         return FAILED
 
@@ -305,10 +333,8 @@ def parseURL(toParse):
     addToResults = emailSearchRE(body) ## parses HTML for emails regex
     if addToResults is not None:
         for i in range(len(addToResults)):
-            RESULTS[toParse.threadID].append(toParse.url)
-            RESULTS[toParse.threadID].append(addToResults[i])
-
-    newIDscnt = toParse.threadID
+            RESULTS[threading.current_thread()].append(toParse.url)
+            RESULTS[threading.current_thread()].append(addToResults[i])
 
     # QUEUES UP NEW URLS TO BE SEARCHED
     #
@@ -318,14 +344,15 @@ def parseURL(toParse):
     for link in linksObject:
         #print(link.get('href'))
         if(validateURL(toParse.url)):
-            LINKS_LIST[toParse.threadID].append(link.get('href'))
+            LINKS_LIST[threading.currentThread()].append(link.get('href'))
             #newIDscnt = newIDscnt + 1
             if (toParse.currentdepth+1 is not toParse.maxdepth):
-                newURL = PendingURL(link.get('href'),toParse.currentdepth+1,toParse.maxdepth,newIDscnt)
+                newURL = PendingURL(link.get('href'),toParse.currentdepth+1,toParse.maxdepth)
                 QUEUE_MUTEX.acquire();
                 global CURRENT_QUEUE_SIZE
                 CURRENT_QUEUE_SIZE += 1
                 heapq.heappush(WORK_QUEUE,newURL)
+                print("added " + link.get('href') + " to work queue for parsing")
                 QUEUE_MUTEX.release();
         else:
             print("invalid url " + link + " detected, ignoring...")
@@ -336,7 +363,7 @@ def parseURL(toParse):
 def writeLinks(linksList, outfile):
     file =open(outfile, "w")
     for threadID in linksList:
-        print(threadID)
+        print("Writing links for thread ID + " + str(threadID))
         #file.write("At Depth: " + str(threadID) + "\n")
         for entry in linksList[threadID]:
             file.write(str(entry) + "\n")
@@ -376,7 +403,7 @@ searhingSemaphore = threading.BoundedSemaphore(1)
 
 performSearch(site, depth)
 startAllThreads()
-#performSearch(site, depth)
+runThreadPool()
 stopAllThreads()
 
 print("Final returned list.")
