@@ -1,15 +1,53 @@
 #!/usr/bin/env python2.7
 import os
+
+##
+# Tutorial on how to use BeautifulSoup
+# https://www.dataquest.io/blog/web-scraping-tutorial-python/
+##
 from bs4 import BeautifulSoup
+
+##
+# Urllib used to open websites
+#tutorial and documentation found at link below
+# https://docs.python.org/2/library/urllib2.html
+##
 import requests
 import urllib2
-#import urllib.request
+
+##
+#tutorial on how to use regular expressions
+# https://docs.python.org/2/howto/regex.html
+##
 import re
+
+##
+# Python threading library with information about
+#threads, semaphores, and locks
+# https://docs.python.org/2/library/threading.html
+##
 import threading
 from threading import Lock
+
+
 import signal
+
+##
+# tutorial on QUEUES
+# https://docs.python.org/2/library/queue.html#module-Queue
+##
 import Queue
+
+##
+# heap documentation for python 2+
+# https://docs.python.org/2/library/heapq.html
+##
 import heapq #by default this is a minheap, we will need to flip it
+
+##
+# tutorial / documentation on dictionaries in python 2
+# https://docs.python.org/2/library/collections.html#collections.defaultdict
+##
 from collections import defaultdict
 
 #CONFIG VARIABLES
