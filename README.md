@@ -5,9 +5,11 @@ Python Searching Website Spider/Crawler created by Brandi Durham and John Quinn
 For our final project, we wanted to create a python program that allows a user to input a web 
 url and a search input and have our program give back all occurences of the search input on the 
 website. We plan to use python to write the script, and have it initially where the user can 
-input an email address to search for on the site. Our program will seach every page on the website.
+input an email address to search for on the site. Our program will seach a certain depth of pages on the website.
 In the future, we would like to have it where the user can choose which option they would like to 
 search for: email address, phone number, or name. 
+At this time the user can search for an email address, phone number, or get a list of all emails on the site.   
+For the users benefit, we also collected every link that is on the site and stored in a seperate outfile.txt.
 
 ### DEPENDENCIES ###
 
